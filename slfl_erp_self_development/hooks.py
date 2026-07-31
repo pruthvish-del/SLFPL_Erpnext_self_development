@@ -5,6 +5,10 @@ app_description = "This is the production app"
 app_email = "suresh.kumar@siddharthalogistics.com"
 app_license = "mit"
 
+fixtures = [
+    {"dt": "Client Script", "filters": [["dt", "=", "Shipment 3PL"]]}
+]
+
 # Apps
 # ------------------
 
