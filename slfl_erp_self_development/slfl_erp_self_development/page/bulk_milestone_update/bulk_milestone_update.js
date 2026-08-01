@@ -141,8 +141,8 @@ class BulkMilestoneWizard {
 			frappe.set_route("shipment-3pl");
 		});
 
-		this.page.add_inner_button('View Update Logs', () => {
-			frappe.set_route('milestone-bulk-update-log');
+		this.page.add_inner_button("View Update Logs", () => {
+			frappe.set_route("milestone-bulk-update-log");
 		});
 	}
 
@@ -331,10 +331,13 @@ class BulkMilestoneWizard {
 							return;
 						}
 
-						frappe.show_alert({
-							message: 'Bulk milestone update completed successfully.',
-							indicator: 'green'
-						}, 7);
+						frappe.show_alert(
+							{
+								message: "Bulk milestone update completed successfully.",
+								indicator: "green",
+							},
+							7,
+						);
 
 						this.results = data.results;
 						this.log_csv_url = data.csv_url;

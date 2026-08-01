@@ -59,7 +59,7 @@ def _parse_date_cell(value):
 	if value is None:
 		return {"date": None, "invalid": False}
 
-	if isinstance(value, (int, float)):
+	if isinstance(value, (int | float)):
 		try:
 			base = datetime(1899, 12, 30)
 			return {"date": (base + timedelta(days=float(value))).date(), "invalid": False}
