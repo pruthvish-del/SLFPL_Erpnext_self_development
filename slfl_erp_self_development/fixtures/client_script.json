@@ -1,0 +1,13 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "Shipment 3PL",
+  "enabled": 1,
+  "modified": "2026-07-27 16:01:22.440445",
+  "module": "Shipment",
+  "name": "Shipment 3PL - Bulk Milestone Button",
+  "script": "frappe.listview_settings['Shipment 3PL'] = frappe.listview_settings['Shipment 3PL'] || {};\r\n\r\nfrappe.listview_settings['Shipment 3PL'].onload = function(listview) {\r\n\tlistview.page.add_inner_button('Bulk Update Milestones', function() {\r\n\t\tfrappe.set_route('bulk-milestone-update');\r\n\t});\r\n};",
+  "view": "List"
+ }
+]
