@@ -211,7 +211,10 @@ class BulkMilestoneWizard {
 					this.$content
 						.find("#bmw-filepill-holder")
 						.html(
-							`<div class="bmw-filepill">${frappe.utils.icon("small-file", "sm")} ${frappe.utils.escape_html(file_doc.file_name)}</div>`,
+							`<div class="bmw-filepill">${frappe.utils.icon(
+								"small-file",
+								"sm"
+							)} ${frappe.utils.escape_html(file_doc.file_name)}</div>`
 						);
 					this.$content.find("#bmw-parse-btn").prop("disabled", false);
 				},
@@ -318,7 +321,7 @@ class BulkMilestoneWizard {
 
 				if (r.message.background) {
 					frappe.msgprint(
-						`Large file detected (${r.message.total} rows). Processing in background — you'll be notified when done.`,
+						`Large file detected (${r.message.total} rows). Processing in background — you'll be notified when done.`
 					);
 					frappe.realtime.on("bulk_milestone_update_complete", (data) => {
 						if (data.job_token !== r.message.job_token) return;
@@ -336,7 +339,7 @@ class BulkMilestoneWizard {
 								message: "Bulk milestone update completed successfully.",
 								indicator: "green",
 							},
-							7,
+							7
 						);
 
 						this.results = data.results;
@@ -366,7 +369,7 @@ class BulkMilestoneWizard {
 				<td class="bmw-shipnum">${frappe.utils.escape_html(row.shipment)}</td>
 				<td>${this.status_pill(row.status)}</td>
 				<td style="color:var(--text-muted, #8d99a6);">${frappe.utils.escape_html(row.message || "-")}</td>
-			</tr>`,
+			</tr>`
 			)
 			.join("");
 
@@ -382,7 +385,9 @@ class BulkMilestoneWizard {
 					</div>
 					<div>
 						<b>Run completed</b><br>
-						<span style="color:var(--text-muted, #8d99a6);font-size:12px;">${frappe.datetime.now_datetime()} — by ${frappe.session.user}</span>
+						<span style="color:var(--text-muted, #8d99a6);font-size:12px;">${frappe.datetime.now_datetime()} — by ${
+			frappe.session.user
+		}</span>
 					</div>
 				</div>
 
