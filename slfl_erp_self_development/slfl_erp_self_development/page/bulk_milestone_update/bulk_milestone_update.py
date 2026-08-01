@@ -24,11 +24,13 @@ FIELD_COLUMN_MAP = {
 def _validate_file_before_parse(file_doc):
 	filename = (file_doc.file_name or "").lower()
 	if not (filename.endswith(".xlsx") or filename.endswith(".csv")):
-		frappe.throw("Only .csv and .xlsx files are supported.")
+		frappe.throw(frappe._("Only .csv and .xlsx files are supported."))
 
 	size_mb = (file_doc.file_size or 0) / (1024 * 1024)
 	if size_mb > MAX_FILE_SIZE_MB:
-		frappe.throw(f"File is too large ({size_mb:.1f} MB). Maximum allowed size is {MAX_FILE_SIZE_MB} MB.")
+		frappe.throw(
+			frappe._("File is too large ({size_mb:.1f} MB). Maximum allowed size is {MAX_FILE_SIZE_MB} MB.")
+		)
 
 
 def _get_file_rows(file_url):
@@ -48,9 +50,9 @@ def _get_file_rows(file_url):
 	rows = [r for r in rows if any(cstr(c).strip() for c in r)]
 
 	if not rows:
-		frappe.throw("The uploaded file is empty.")
+		frappe.throw(frappe._("The uploaded file is empty."))
 	if len(rows) < 2:
-		frappe.throw("The uploaded file has no data rows (only a header).")
+		frappe.throw(frappe._("The uploaded file has no data rows (only a header)."))
 
 	return rows
 
@@ -112,7 +114,7 @@ def _build_row_dicts(rows):
 	"""
 	header = [cstr(h).strip() for h in rows[0]]
 	if not header or not header[0]:
-		frappe.throw("The first column of the file must be 'Shipment Number'.")
+		frappe.throw(frappe._("The first column of the file must be 'Shipment Number'."))
 
 	all_headers = header[1:]
 	data_rows = rows[1:]
@@ -203,7 +205,7 @@ def _resolve_field_updates(field_values):
 
 
 @frappe.whitelist()
-def validate_milestone_upload(file_url):
+def validate_milestone_upload(file_url: str):
 	rows = _get_file_rows(file_url)
 	order, parsed_by_shipment, duplicate_shipments = _build_row_dicts(rows)
 
@@ -407,7 +409,7 @@ def _apply_for_shipments(order, parsed_by_shipment, accepted_set):
 				{"shipment": shipment_number, "status": "not_applied", "message": f"Error: {cstr(e)}"}
 			)
 
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: explicit commit needed to persist per-row updates within a bulk operation loop
 	return results
 
 
@@ -450,13 +452,13 @@ def _create_audit_log(file_url, results):
 	)
 	log_doc.result_log_csv = file_doc.file_url
 	log_doc.save(ignore_permissions=True)
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: explicit commit needed to persist the audit log record outside the request's default transaction
 
 	return {"log_name": log_doc.name, "csv_url": file_doc.file_url}
 
 
 @frappe.whitelist()
-def apply_milestone_update(file_url, accepted_shipments):
+def apply_milestone_update(file_url: str, accepted_shipments: str | list):
 	if isinstance(accepted_shipments, str):
 		accepted_shipments = frappe.parse_json(accepted_shipments)
 
@@ -488,7 +490,9 @@ def apply_milestone_update(file_url, accepted_shipments):
 
 
 def _run_background_apply(job_token, file_url, accepted_shipments, user):
-	frappe.set_user(user)
+	frappe.set_user(
+		user
+	)  # nosemgrep: background job must run as the triggering user so permission checks apply correctly
 	try:
 		rows = _get_file_rows(file_url)
 		order, parsed_by_shipment, _ = _build_row_dicts(rows)

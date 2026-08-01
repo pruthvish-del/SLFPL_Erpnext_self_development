@@ -427,7 +427,7 @@ class BulkMilestoneWizard {
 		if (this.log_csv_url) {
 			window.open(this.log_csv_url, "_blank");
 		} else {
-			frappe.msgprint("Result log file is not available.");
+			frappe.msgprint(__("Result log file is not available."));
 		}
 	}
 }
