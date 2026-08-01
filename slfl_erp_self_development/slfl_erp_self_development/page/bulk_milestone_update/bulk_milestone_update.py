@@ -409,7 +409,8 @@ def _apply_for_shipments(order, parsed_by_shipment, accepted_set):
 				{"shipment": shipment_number, "status": "not_applied", "message": f"Error: {cstr(e)}"}
 			)
 
-	frappe.db.commit()  # nosemgrep: explicit commit needed to persist per-row updates within a bulk operation loop
+	# Explicit commit needed to persist per-row updates within a bulk operation loop
+	frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 	return results
 
 
@@ -452,7 +453,8 @@ def _create_audit_log(file_url, results):
 	)
 	log_doc.result_log_csv = file_doc.file_url
 	log_doc.save(ignore_permissions=True)
-	frappe.db.commit()  # nosemgrep: explicit commit needed to persist the audit log record outside the request's default transaction
+	# Explicit commit needed to persist the audit log record outside the request's default transaction
+	frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 
 	return {"log_name": log_doc.name, "csv_url": file_doc.file_url}
 
@@ -490,9 +492,8 @@ def apply_milestone_update(file_url: str, accepted_shipments: str | list):
 
 
 def _run_background_apply(job_token, file_url, accepted_shipments, user):
-	frappe.set_user(
-		user
-	)  # nosemgrep: background job must run as the triggering user so permission checks apply correctly
+	# Background job must run as the triggering user so permission checks apply correctly
+	frappe.set_user(user)  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-setuser
 	try:
 		rows = _get_file_rows(file_url)
 		order, parsed_by_shipment, _ = _build_row_dicts(rows)
