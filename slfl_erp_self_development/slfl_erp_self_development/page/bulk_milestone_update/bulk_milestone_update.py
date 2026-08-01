@@ -1,10 +1,11 @@
-import frappe
-from frappe.utils import getdate, cstr, now_datetime
-from frappe.utils.xlsxutils import read_xlsx_file_from_attached_file
-from frappe.utils.file_manager import save_file
 import csv
 import io
 from datetime import datetime, timedelta
+
+import frappe
+from frappe.utils import cstr, getdate, now_datetime
+from frappe.utils.file_manager import save_file
+from frappe.utils.xlsxutils import read_xlsx_file_from_attached_file
 
 MAX_FILE_SIZE_MB = 10
 BACKGROUND_JOB_THRESHOLD = 500  # rows -> switch to background processing
@@ -137,7 +138,11 @@ def _build_row_dicts(rows):
 			if key in FIELD_COLUMN_MAP:
 				fieldname, fieldtype, options = FIELD_COLUMN_MAP[key]
 				parsed = _parse_field_cell(fieldtype, options, raw_value)
-				field_values[fieldname] = {"label": col_name, "value": parsed["value"], "invalid": parsed["invalid"]}
+				field_values[fieldname] = {
+					"label": col_name,
+					"value": parsed["value"],
+					"invalid": parsed["invalid"],
+				}
 			else:
 				milestone_dates[col_name] = _parse_date_cell(raw_value)
 
@@ -169,7 +174,9 @@ def _match_milestones_for_shipment(shipment_doc, milestone_dates):
 			continue
 
 		if is_mapped:
-			matched.append({"milestone_row": existing_by_key[key], "milestone_name": col_name, "date": cell["date"]})
+			matched.append(
+				{"milestone_row": existing_by_key[key], "milestone_name": col_name, "date": cell["date"]}
+			)
 		else:
 			unmapped.append(col_name)
 
@@ -210,26 +217,48 @@ def validate_milestone_upload(file_url):
 
 		filled_milestone_count = sum(1 for c in milestone_dates.values() if c["date"] is not None)
 		field_updates, invalid_fields = _resolve_field_updates(field_values)
-		dup_note = "Duplicate rows found for this shipment — last occurrence used. " if shipment_number in duplicate_shipments else ""
+		dup_note = (
+			"Duplicate rows found for this shipment — last occurrence used. "
+			if shipment_number in duplicate_shipments
+			else ""
+		)
 
 		if not frappe.db.exists("Shipment 3PL", shipment_number):
-			preview_rows.append({"shipment": shipment_number, "status": "error", "milestones_text": "-",
-				"message": dup_note + "Shipment not found. Check the shipment number spelling."})
+			preview_rows.append(
+				{
+					"shipment": shipment_number,
+					"status": "error",
+					"milestones_text": "-",
+					"message": dup_note + "Shipment not found. Check the shipment number spelling.",
+				}
+			)
 			counts["error"] += 1
 			continue
 
 		if not frappe.has_permission("Shipment 3PL", ptype="write", doc=shipment_number):
-			preview_rows.append({"shipment": shipment_number, "status": "error", "milestones_text": "-",
-				"message": dup_note + "You do not have permission to update this shipment."})
+			preview_rows.append(
+				{
+					"shipment": shipment_number,
+					"status": "error",
+					"milestones_text": "-",
+					"message": dup_note + "You do not have permission to update this shipment.",
+				}
+			)
 			counts["error"] += 1
 			continue
 
 		shipment_doc = frappe.get_doc("Shipment 3PL", shipment_number)
 
 		if (shipment_doc.workflow_state or "").strip() == "Operations Complete":
-			preview_rows.append({"shipment": shipment_number, "status": "locked",
-				"milestones_text": f"{filled_milestone_count} milestone date(s) and {len(field_updates)} field(s) in file — none will be applied",
-				"message": dup_note + "Workflow state is \"Operations Complete\" — Tracking tab is read-only for this shipment."})
+			preview_rows.append(
+				{
+					"shipment": shipment_number,
+					"status": "locked",
+					"milestones_text": f"{filled_milestone_count} milestone date(s) and {len(field_updates)} field(s) in file — none will be applied",
+					"message": dup_note
+					+ 'Workflow state is "Operations Complete" — Tracking tab is read-only for this shipment.',
+				}
+			)
 			counts["locked"] += 1
 			continue
 
@@ -246,24 +275,46 @@ def validate_milestone_upload(file_url):
 		total_updates = len(matched) + len(field_updates)
 
 		if total_updates == 0:
-			preview_rows.append({"shipment": shipment_number, "status": "error", "milestones_text": "-",
-				"message": " | ".join(notes) if notes else "No matching milestone or field columns found for this shipment."})
+			preview_rows.append(
+				{
+					"shipment": shipment_number,
+					"status": "error",
+					"milestones_text": "-",
+					"message": " | ".join(notes)
+					if notes
+					else "No matching milestone or field columns found for this shipment.",
+				}
+			)
 			counts["error"] += 1
 			continue
 
 		summary_parts = []
 		if matched:
-			summary_parts.append(", ".join(m["milestone_name"] for m in matched) + f" ({len(matched)} milestone date(s))")
+			summary_parts.append(
+				", ".join(m["milestone_name"] for m in matched) + f" ({len(matched)} milestone date(s))"
+			)
 		if field_updates:
-			summary_parts.append(", ".join(f["label"] for f in field_updates) + f" ({len(field_updates)} field(s))")
+			summary_parts.append(
+				", ".join(f["label"] for f in field_updates) + f" ({len(field_updates)} field(s))"
+			)
 
-		preview_rows.append({"shipment": shipment_number, "status": "ready",
-			"milestones_text": " | ".join(summary_parts),
-			"message": " | ".join(notes) if notes else "-"})
+		preview_rows.append(
+			{
+				"shipment": shipment_number,
+				"status": "ready",
+				"milestones_text": " | ".join(summary_parts),
+				"message": " | ".join(notes) if notes else "-",
+			}
+		)
 		counts["ready"] += 1
 
 	return {
-		"summary": {"total": len(order), "ready": counts["ready"], "locked": counts["locked"], "error": counts["error"]},
+		"summary": {
+			"total": len(order),
+			"ready": counts["ready"],
+			"locked": counts["locked"],
+			"error": counts["error"],
+		},
 		"rows": preview_rows,
 	}
 
@@ -272,25 +323,46 @@ def _apply_for_shipments(order, parsed_by_shipment, accepted_set):
 	results = []
 
 	for shipment_number in order:
-		if shipment_number not in accepted_set:
-			continue
-
 		entry = parsed_by_shipment[shipment_number]
 		milestone_dates = entry["milestones"]
 		field_values = entry["fields"]
 
 		try:
 			if not frappe.db.exists("Shipment 3PL", shipment_number):
-				results.append({"shipment": shipment_number, "status": "not_applied", "message": "Shipment not found."})
+				results.append(
+					{"shipment": shipment_number, "status": "not_applied", "message": "Shipment not found."}
+				)
+				continue
+
+			if not frappe.has_permission("Shipment 3PL", ptype="write", doc=shipment_number):
+				results.append(
+					{"shipment": shipment_number, "status": "not_applied", "message": "Permission denied."}
+				)
 				continue
 
 			shipment_doc = frappe.get_doc("Shipment 3PL", shipment_number)
 
 			if (shipment_doc.workflow_state or "").strip() == "Operations Complete":
-				results.append({"shipment": shipment_number, "status": "skipped", "message": "Locked — Operations Complete."})
+				results.append(
+					{
+						"shipment": shipment_number,
+						"status": "skipped",
+						"message": "Locked — Operations Complete.",
+					}
+				)
 				continue
 
-			matched, unmapped, invalid_cells = _match_milestones_for_shipment(shipment_doc, milestone_dates)
+			if shipment_number not in accepted_set:
+				results.append(
+					{
+						"shipment": shipment_number,
+						"status": "not_applied",
+						"message": "Excluded by user in preview (row was unchecked or not matched).",
+					}
+				)
+				continue
+
+			matched, _unmapped, invalid_cells = _match_milestones_for_shipment(shipment_doc, milestone_dates)
 			field_updates, invalid_fields = _resolve_field_updates(field_values)
 
 			if not matched and not field_updates:
@@ -314,7 +386,9 @@ def _apply_for_shipments(order, parsed_by_shipment, accepted_set):
 			if matched:
 				parts.append(f"{len(matched)} milestone date(s)")
 			if field_updates:
-				parts.append(f"{len(field_updates)} field(s) ({', '.join(f['label'] for f in field_updates)})")
+				parts.append(
+					f"{len(field_updates)} field(s) ({', '.join(f['label'] for f in field_updates)})"
+				)
 			msg = "Saved: " + ", ".join(parts) + "."
 
 			bad = invalid_cells + invalid_fields
@@ -324,10 +398,14 @@ def _apply_for_shipments(order, parsed_by_shipment, accepted_set):
 			results.append({"shipment": shipment_number, "status": "updated", "message": msg})
 
 		except frappe.PermissionError:
-			results.append({"shipment": shipment_number, "status": "not_applied", "message": "Permission denied."})
+			results.append(
+				{"shipment": shipment_number, "status": "not_applied", "message": "Permission denied."}
+			)
 		except Exception as e:
 			frappe.log_error(title="Bulk Milestone Update - row failed", message=frappe.get_traceback())
-			results.append({"shipment": shipment_number, "status": "not_applied", "message": f"Error: {cstr(e)}"})
+			results.append(
+				{"shipment": shipment_number, "status": "not_applied", "message": f"Error: {cstr(e)}"}
+			)
 
 	frappe.db.commit()
 	return results
@@ -343,17 +421,18 @@ def _create_audit_log(file_url, results):
 	except Exception:
 		source_file_name = file_url
 
-	log_doc = frappe.get_doc({
-		"doctype": "Milestone Bulk Update Log",
-    	"run_by": frappe.session.user,
-    	"run_at": frappe.utils.now_datetime(),
-    	"source_file": source_file_name,
-    	"total_rows": len(results),
-    	"updated": updated,
-    	"skipped": skipped,
-    	"errors": errored,
-	})
-	log_doc.result_log_csv = file_doc.file_url
+	log_doc = frappe.get_doc(
+		{
+			"doctype": "Milestone Bulk Update Log",
+			"run_by": frappe.session.user,
+			"run_at": frappe.utils.now_datetime(),
+			"source_file": source_file_name,
+			"total_rows": len(results),
+			"updated": updated,
+			"skipped": skipped,
+			"errors": errored,
+		}
+	)
 	log_doc.insert(ignore_permissions=True)
 
 	safe_name = frappe.scrub(log_doc.name)
@@ -369,7 +448,7 @@ def _create_audit_log(file_url, results):
 		dn=log_doc.name,
 		is_private=1,
 	)
-	log_doc.result_csv = file_doc.file_url
+	log_doc.result_log_csv = file_doc.file_url
 	log_doc.save(ignore_permissions=True)
 	frappe.db.commit()
 
@@ -388,7 +467,7 @@ def apply_milestone_update(file_url, accepted_shipments):
 	if len(accepted_set) > BACKGROUND_JOB_THRESHOLD:
 		job_token = frappe.generate_hash(length=10)
 		frappe.enqueue(
-			method="shipment.shipment.page.bulk_milestone_update.bulk_milestone_update._run_background_apply",
+			method="slfl_erp_self_development.slfl_erp_self_development.page.bulk_milestone_update.bulk_milestone_update._run_background_apply",
 			queue="long",
 			timeout=3600,
 			job_token=job_token,
@@ -400,7 +479,12 @@ def apply_milestone_update(file_url, accepted_shipments):
 
 	results = _apply_for_shipments(order, parsed_by_shipment, accepted_set)
 	log_info = _create_audit_log(file_url, results)
-	return {"background": False, "results": results, "log_name": log_info["log_name"], "csv_url": log_info["csv_url"]}
+	return {
+		"background": False,
+		"results": results,
+		"log_name": log_info["log_name"],
+		"csv_url": log_info["csv_url"],
+	}
 
 
 def _run_background_apply(job_token, file_url, accepted_shipments, user):
@@ -415,14 +499,24 @@ def _run_background_apply(job_token, file_url, accepted_shipments, user):
 
 		frappe.publish_realtime(
 			event="bulk_milestone_update_complete",
-			message={"job_token": job_token, "results": results, "log_name": log_info["log_name"], "csv_url": log_info["csv_url"]},
+			message={
+				"job_token": job_token,
+				"results": results,
+				"log_name": log_info["log_name"],
+				"csv_url": log_info["csv_url"],
+			},
 			user=user,
 		)
 	except Exception:
-		frappe.log_error(title="Bulk Milestone Update - background job failed", message=frappe.get_traceback())
+		frappe.log_error(
+			title="Bulk Milestone Update - background job failed", message=frappe.get_traceback()
+		)
 		frappe.publish_realtime(
 			event="bulk_milestone_update_complete",
-			message={"job_token": job_token, "error": True,
-				"error_message": "Background processing failed. Please check Error Log or contact your administrator."},
+			message={
+				"job_token": job_token,
+				"error": True,
+				"error_message": "Background processing failed. Please check Error Log or contact your administrator.",
+			},
 			user=user,
 		)

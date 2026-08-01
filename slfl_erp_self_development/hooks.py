@@ -4,10 +4,9 @@ app_publisher = "canofy_technologies"
 app_description = "This is the production app"
 app_email = "suresh.kumar@siddharthalogistics.com"
 app_license = "mit"
+app_version = "0.1.0-beta"
 
-fixtures = [
-    {"dt": "Client Script", "filters": [["dt", "=", "Shipment 3PL"]]}
-]
+fixtures = [{"dt": "Client Script", "filters": [["dt", "=", "Shipment 3PL"]]}]
 
 # Apps
 # ------------------
@@ -250,4 +249,3 @@ fixtures = [
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-

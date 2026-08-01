@@ -140,6 +140,10 @@ class BulkMilestoneWizard {
 		this.page.set_secondary_action("Go to Shipment 3PL List", () => {
 			frappe.set_route("shipment-3pl");
 		});
+
+		this.page.add_inner_button('View Update Logs', () => {
+			frappe.set_route('milestone-bulk-update-log');
+		});
 	}
 
 	update_stepper() {
@@ -326,6 +330,12 @@ class BulkMilestoneWizard {
 							});
 							return;
 						}
+
+						frappe.show_alert({
+							message: 'Bulk milestone update completed successfully.',
+							indicator: 'green'
+						}, 7);
+
 						this.results = data.results;
 						this.log_csv_url = data.csv_url;
 						this.render_step3();
