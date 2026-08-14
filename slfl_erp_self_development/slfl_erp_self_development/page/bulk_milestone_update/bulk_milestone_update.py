@@ -29,11 +29,12 @@ def _validate_file_before_parse(file_doc):
 	size_mb = (file_doc.file_size or 0) / (1024 * 1024)
 	if size_mb > MAX_FILE_SIZE_MB:
 		frappe.throw(
-			frappe._("File is too large ({size_mb:.1f} MB). Maximum allowed size is {MAX_FILE_SIZE_MB} MB.")
+			frappe._(f"File is too large ({size_mb:.1f} MB). Maximum allowed size is {MAX_FILE_SIZE_MB} MB.")
 		)
 
 
-def _get_file_rows(file_url):
+def _get_file_rows(file_url: str):
+	"""Return list of rows (list of cell values) from an uploaded .xlsx or .csv file."""
 	file_doc = frappe.get_doc("File", {"file_url": file_url})
 	_validate_file_before_parse(file_doc)
 	filename = (file_doc.file_name or "").lower()
@@ -58,10 +59,15 @@ def _get_file_rows(file_url):
 
 
 def _parse_date_cell(value):
+	"""
+	Returns {"date": date_or_None, "invalid": bool}.
+	Blank cell -> date=None, invalid=False (skip silently).
+	Non-blank but unparseable -> date=None, invalid=True (blocks the whole row).
+	"""
 	if value is None:
 		return {"date": None, "invalid": False}
 
-	if isinstance(value, (int | float)):
+	if isinstance(value, int | float):
 		try:
 			base = datetime(1899, 12, 30)
 			return {"date": (base + timedelta(days=float(value))).date(), "invalid": False}
@@ -106,11 +112,13 @@ def _parse_field_cell(fieldtype, options, value):
 
 def _build_row_dicts(rows):
 	"""
-	Returns (order, parsed_by_shipment, duplicate_shipments)
+	Returns (order, parsed_by_shipment, duplicate_shipments, header, raw_rows_by_shipment)
 	parsed_by_shipment[shipment_number] = {
 		"milestones": {col_name: {"date":.., "invalid":..}, ...},
 		"fields": {fieldname: {"label":.., "value":.., "invalid":..}, ...}
 	}
+	raw_rows_by_shipment[shipment_number] = the original raw row (list of cell values),
+	kept so a re-uploadable "fix and retry" CSV can be generated for error rows later.
 	"""
 	header = [cstr(h).strip() for h in rows[0]]
 	if not header or not header[0]:
@@ -120,6 +128,7 @@ def _build_row_dicts(rows):
 	data_rows = rows[1:]
 
 	parsed_by_shipment = {}
+	raw_rows_by_shipment = {}
 	order = []
 	seen = set()
 	duplicate_shipments = set()
@@ -155,11 +164,16 @@ def _build_row_dicts(rows):
 			order.append(shipment_number)
 
 		parsed_by_shipment[shipment_number] = {"milestones": milestone_dates, "fields": field_values}
+		raw_rows_by_shipment[shipment_number] = r  # last occurrence wins, matches parsed_by_shipment
 
-	return order, parsed_by_shipment, duplicate_shipments
+	return order, parsed_by_shipment, duplicate_shipments, header, raw_rows_by_shipment
 
 
 def _match_milestones_for_shipment(shipment_doc, milestone_dates):
+	"""
+	Matches Excel columns against THIS shipment's own milestone rows.
+	Returns (matched, unmapped, invalid_cells).
+	"""
 	existing_by_key = {(row.milestone_name or "").strip().lower(): row for row in shipment_doc.milestones}
 
 	matched, unmapped, invalid_cells = [], [], []
@@ -173,7 +187,7 @@ def _match_milestones_for_shipment(shipment_doc, milestone_dates):
 			continue
 
 		if cell["date"] is None:
-			continue
+			continue  # blank cell -> skip silently
 
 		if is_mapped:
 			matched.append(
@@ -206,8 +220,9 @@ def _resolve_field_updates(field_values):
 
 @frappe.whitelist()
 def validate_milestone_upload(file_url: str):
+	"""Preview-only. Parses the file and checks every row. Writes nothing."""
 	rows = _get_file_rows(file_url)
-	order, parsed_by_shipment, duplicate_shipments = _build_row_dicts(rows)
+	order, parsed_by_shipment, duplicate_shipments, _header, _raw_rows = _build_row_dicts(rows)
 
 	preview_rows = []
 	counts = {"ready": 0, "locked": 0, "error": 0}
@@ -269,10 +284,23 @@ def validate_milestone_upload(file_url: str):
 		notes = [dup_note.strip()] if dup_note else []
 		if unmapped:
 			notes.append(f"Unmapped column(s) ignored: {', '.join(unmapped)}")
-		if invalid_cells:
-			notes.append(f"Invalid date value in: {', '.join(invalid_cells)} (not applied)")
-		if invalid_fields:
-			notes.append(f"Invalid value in: {', '.join(invalid_fields)} (not applied)")
+
+		# Any invalid date/value blocks the ENTIRE row — no partial update allowed.
+		if invalid_cells or invalid_fields:
+			bad = invalid_cells + invalid_fields
+			notes.append(
+				f"Invalid date/value in: {', '.join(bad)}. Fix the file and re-upload — this row will not be updated."
+			)
+			preview_rows.append(
+				{
+					"shipment": shipment_number,
+					"status": "error",
+					"milestones_text": "-",
+					"message": " | ".join(notes),
+				}
+			)
+			counts["error"] += 1
+			continue
 
 		total_updates = len(matched) + len(field_updates)
 
@@ -322,6 +350,7 @@ def validate_milestone_upload(file_url: str):
 
 
 def _apply_for_shipments(order, parsed_by_shipment, accepted_set):
+	"""Shared logic: writes milestone dates/fields for the accepted shipments. Returns results list."""
 	results = []
 
 	for shipment_number in order:
@@ -354,6 +383,21 @@ def _apply_for_shipments(order, parsed_by_shipment, accepted_set):
 				)
 				continue
 
+			matched, unmapped, invalid_cells = _match_milestones_for_shipment(shipment_doc, milestone_dates)
+			field_updates, invalid_fields = _resolve_field_updates(field_values)
+
+			# Any invalid date/value blocks the ENTIRE row — no partial update allowed.
+			if invalid_cells or invalid_fields:
+				bad = invalid_cells + invalid_fields
+				results.append(
+					{
+						"shipment": shipment_number,
+						"status": "not_applied",
+						"message": f"Invalid date/value in: {', '.join(bad)}. No fields were updated for this shipment.",
+					}
+				)
+				continue
+
 			if shipment_number not in accepted_set:
 				results.append(
 					{
@@ -364,15 +408,14 @@ def _apply_for_shipments(order, parsed_by_shipment, accepted_set):
 				)
 				continue
 
-			matched, _unmapped, invalid_cells = _match_milestones_for_shipment(shipment_doc, milestone_dates)
-			field_updates, invalid_fields = _resolve_field_updates(field_values)
-
 			if not matched and not field_updates:
-				msg = "No matching milestone or field columns found."
-				bad = invalid_cells + invalid_fields
-				if bad:
-					msg += f" Invalid value(s) in: {', '.join(bad)}."
-				results.append({"shipment": shipment_number, "status": "not_applied", "message": msg})
+				results.append(
+					{
+						"shipment": shipment_number,
+						"status": "not_applied",
+						"message": "No matching milestone or field columns found.",
+					}
+				)
 				continue
 
 			current_time = now_datetime().time()
@@ -393,10 +436,6 @@ def _apply_for_shipments(order, parsed_by_shipment, accepted_set):
 				)
 			msg = "Saved: " + ", ".join(parts) + "."
 
-			bad = invalid_cells + invalid_fields
-			if bad:
-				msg += f" Skipped invalid value(s) in: {', '.join(bad)}."
-
 			results.append({"shipment": shipment_number, "status": "updated", "message": msg})
 
 		except frappe.PermissionError:
@@ -414,7 +453,42 @@ def _apply_for_shipments(order, parsed_by_shipment, accepted_set):
 	return results
 
 
-def _create_audit_log(file_url, results):
+def _csv_escape(value) -> str:
+	text = cstr(value)
+	if any(c in text for c in [",", '"', "\n"]):
+		text = '"' + text.replace('"', '""') + '"'
+	return text
+
+
+def _build_error_csv(header, raw_rows_by_shipment, results):
+	"""
+	Builds a re-uploadable CSV (same column layout as the original file) containing
+	only the rows that still need attention: errors and locked shipments.
+	Rows the user intentionally excluded in the preview screen are NOT included.
+	Returns CSV content as a string, or None if there is nothing to re-export.
+	"""
+	flagged_shipments = []
+	for r in results:
+		if r["status"] == "not_applied" and "Excluded by user in preview" in (r.get("message") or ""):
+			continue
+		if r["status"] in ("not_applied", "skipped"):
+			flagged_shipments.append(r["shipment"])
+
+	if not flagged_shipments:
+		return None
+
+	lines = [",".join(_csv_escape(h) for h in header)]
+	for shipment_number in flagged_shipments:
+		raw_row = raw_rows_by_shipment.get(shipment_number)
+		if not raw_row:
+			continue
+		padded = list(raw_row) + [""] * (len(header) - len(raw_row))
+		lines.append(",".join(_csv_escape(c) for c in padded[: len(header)]))
+
+	return "\n".join(lines)
+
+
+def _create_audit_log(file_url, results, error_csv_content=None):
 	updated = sum(1 for r in results if r["status"] == "updated")
 	skipped = sum(1 for r in results if r["status"] == "skipped")
 	errored = sum(1 for r in results if r["status"] == "not_applied")
@@ -452,20 +526,36 @@ def _create_audit_log(file_url, results):
 		is_private=1,
 	)
 	log_doc.result_log_csv = file_doc.file_url
+
+	error_csv_url = None
+	if error_csv_content:
+		error_file_doc = save_file(
+			fname=f"bulk_milestone_errors_{safe_name}.csv",
+			content=error_csv_content,
+			dt="Milestone Bulk Update Log",
+			dn=log_doc.name,
+			is_private=1,
+		)
+		error_csv_url = error_file_doc.file_url
+
 	log_doc.save(ignore_permissions=True)
 	# Explicit commit needed to persist the audit log record outside the request's default transaction
 	frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 
-	return {"log_name": log_doc.name, "csv_url": file_doc.file_url}
+	return {"log_name": log_doc.name, "csv_url": file_doc.file_url, "error_csv_url": error_csv_url}
 
 
 @frappe.whitelist()
 def apply_milestone_update(file_url: str, accepted_shipments: str | list):
+	"""
+	Synchronous path for small/medium files.
+	Large files (accepted rows > BACKGROUND_JOB_THRESHOLD) are handed off to a background job.
+	"""
 	if isinstance(accepted_shipments, str):
 		accepted_shipments = frappe.parse_json(accepted_shipments)
 
 	rows = _get_file_rows(file_url)
-	order, parsed_by_shipment, _ = _build_row_dicts(rows)
+	order, parsed_by_shipment, _duplicate_shipments, header, raw_rows_by_shipment = _build_row_dicts(rows)
 	accepted_set = set(accepted_shipments or [])
 
 	if len(accepted_set) > BACKGROUND_JOB_THRESHOLD:
@@ -482,25 +572,29 @@ def apply_milestone_update(file_url: str, accepted_shipments: str | list):
 		return {"background": True, "job_token": job_token, "total": len(accepted_set)}
 
 	results = _apply_for_shipments(order, parsed_by_shipment, accepted_set)
-	log_info = _create_audit_log(file_url, results)
+	error_csv_content = _build_error_csv(header, raw_rows_by_shipment, results)
+	log_info = _create_audit_log(file_url, results, error_csv_content)
 	return {
 		"background": False,
 		"results": results,
 		"log_name": log_info["log_name"],
 		"csv_url": log_info["csv_url"],
+		"error_csv_url": log_info["error_csv_url"],
 	}
 
 
 def _run_background_apply(job_token, file_url, accepted_shipments, user):
+	"""Executed via frappe.enqueue for large files. Publishes progress + completion over realtime."""
 	# Background job must run as the triggering user so permission checks apply correctly
 	frappe.set_user(user)  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-setuser
 	try:
 		rows = _get_file_rows(file_url)
-		order, parsed_by_shipment, _ = _build_row_dicts(rows)
+		order, parsed_by_shipment, _duplicate_shipments, header, raw_rows_by_shipment = _build_row_dicts(rows)
 		accepted_set = set(accepted_shipments or [])
 
 		results = _apply_for_shipments(order, parsed_by_shipment, accepted_set)
-		log_info = _create_audit_log(file_url, results)
+		error_csv_content = _build_error_csv(header, raw_rows_by_shipment, results)
+		log_info = _create_audit_log(file_url, results, error_csv_content)
 
 		frappe.publish_realtime(
 			event="bulk_milestone_update_complete",
@@ -509,6 +603,7 @@ def _run_background_apply(job_token, file_url, accepted_shipments, user):
 				"results": results,
 				"log_name": log_info["log_name"],
 				"csv_url": log_info["csv_url"],
+				"error_csv_url": log_info["error_csv_url"],
 			},
 			user=user,
 		)

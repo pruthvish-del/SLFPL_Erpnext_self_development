@@ -344,6 +344,7 @@ class BulkMilestoneWizard {
 
 						this.results = data.results;
 						this.log_csv_url = data.csv_url;
+						this.error_csv_url = data.error_csv_url;
 						this.render_step3();
 					});
 					return;
@@ -351,6 +352,7 @@ class BulkMilestoneWizard {
 
 				this.results = r.message.results;
 				this.log_csv_url = r.message.csv_url;
+				this.error_csv_url = r.message.error_csv_url;
 				this.render_step3();
 			},
 			error: () => frappe.dom.unfreeze(),
@@ -408,11 +410,22 @@ class BulkMilestoneWizard {
 					</table>
 				</div>
 				<div class="bmw-actions">
+					${
+						this.error_csv_url
+							? `
+					<button class="btn btn-default btn-sm" id="bmw-download-errors-btn" style="border-color:var(--red-400,#e86161);color:var(--red-600,#a63d3d);">
+						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:4px;vertical-align:-2px;">
+							<path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16"></path>
+						</svg>
+						Download error rows (CSV)
+					</button>`
+							: ""
+					}
 					<button class="btn btn-default btn-sm" id="bmw-download-btn">
-							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:4px;vertical-align:-2px;">
-								<path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16"></path>
-							</svg>
-							Download result log (CSV)
+						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:4px;vertical-align:-2px;">
+							<path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16"></path>
+						</svg>
+						Download result log (CSV)
 					</button>
 					<button class="btn btn-primary btn-sm" id="bmw-restart-btn">Start a new upload</button>
 				</div>
@@ -421,6 +434,9 @@ class BulkMilestoneWizard {
 
 		this.$content.find("#bmw-restart-btn").on("click", () => this.render_step1());
 		this.$content.find("#bmw-download-btn").on("click", () => this.download_csv());
+		this.$content
+			.find("#bmw-download-errors-btn")
+			.on("click", () => this.download_error_csv());
 	}
 
 	download_csv() {
@@ -428,6 +444,14 @@ class BulkMilestoneWizard {
 			window.open(this.log_csv_url, "_blank");
 		} else {
 			frappe.msgprint(__("Result log file is not available."));
+		}
+	}
+
+	download_error_csv() {
+		if (this.error_csv_url) {
+			window.open(this.error_csv_url, "_blank");
+		} else {
+			frappe.msgprint("No error rows to download.");
 		}
 	}
 }
